@@ -98,10 +98,25 @@ AGENTS.md
 
 ### Phase 1 — 让网页版 ChatGPT 连接本机
 
+本地 Agent 读完 `HANIS-METHOD.md` 后，先一次性收集：
+
 ```text
+Workspace 开放范围
+Tunnel ID
+Runtime API Key
+权限组（默认 Reader + Editor）
+```
+
+然后执行：
+
+```text
+正向确认开放范围 / 权限 / Capability 数量
+        ↓
 启动 Hanis MCP Server
         ↓
 确认 localhost /mcp 可访问
+        ↓
+网络直连检测 → 必要时自动代理 → 必要时逐层排查
         ↓
 配置 OpenAI Secure MCP Tunnel
         ↓
@@ -124,16 +139,15 @@ Hanis 默认只监听本机回环地址，由 Secure MCP Tunnel 主动向 OpenAI
 
 ### Phase 2 — 登记 Workspace
 
-用户选择允许 AI 访问的本地目录，例如：
+首次接入时，本地 Agent 会一次性询问用户要开放的 Workspace 范围。范围可以是整个盘符、指定目录、单个项目或多个路径，例如：
 
 ```text
+D:\
 D:\Projects\project-a
-D:\Projects\project-b
+E:\research
 ```
 
-Hanis 将这些目录注册为独立 Workspace，并为每个 Workspace 设置访问范围和 Runner。
-
-开源默认不建议直接开放整个磁盘。
+Hanis 将用户提供的范围注册为 Workspace，并为每个 Workspace 设置访问范围和 Runner。用户提供的范围就是当前有效 Scope。
 
 ### Phase 3 — 读取 Agent 与项目记忆
 
@@ -170,18 +184,23 @@ Hanis + 参考现有风格
 Capability × Scope × Risk × Approval
 ```
 
-例如：
+首次默认权限组为：
 
 ```text
-filesystem.read     → 自动允许
-filesystem.write    → 当前 Workspace 内允许
-shell.container     → 允许或询问
-shell.native        → 高风险，询问
-git.push            → 外部操作，询问
-system.admin        → 默认禁止或临时提权
+Reader + Editor
 ```
 
-高风险操作可以使用：
+用户可以按需要增加：
+
+```text
+Developer
+Operator
+Owner
+```
+
+用户侧只显示实际已经开放的能力。例如 Reader + Editor 会开放本地读取、搜索、Git 状态、文件编辑、patch、快照和 MEMORY 更新等能力，并显示当前开放 Capability 的数量。
+
+需要临时提升的高风险操作可以使用：
 
 ```text
 允许一次
@@ -223,7 +242,7 @@ Hanis 当前已经完成并实际验证的核心能力包括：
 - **已经建立文件化项目记忆规则。** 新对话可以读取项目本地 Memory 后继续以前的工作。
 - **已经形成 Agent / Memory 迁移方案。** 可以兼容已有 Codex、Claude、Cursor 等项目规则，并计划统一到 Hanis 的 canonical context。
 - **已经形成分级权限模型。** 普通用户可以只开放读取/编辑，高级用户可以按风险显式开放 Shell、Docker、SSH、Git Push、系统操作等能力。
-- **旧的公网暴露方案已经从默认结构中移除。** Tailscale Funnel、公开 HTTPS、stateless MCP 和自建 OAuth 被保留为 legacy / optional，而不是默认依赖。
+- **当前标准连接方式已经确定。** 使用 Secure MCP Tunnel + local tunnel-client + sessionful MCP `/mcp` 连接网页版 ChatGPT。
 
 当前仓库首先公开的是这套已经验证过的方法和设计约束。下一阶段是在这些约束下抽出干净的 `hanis-mcp` 最小实现和安装脚本，而不是直接复制带有个人机器配置的生产代码。
 
