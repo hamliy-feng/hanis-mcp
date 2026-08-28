@@ -200,23 +200,79 @@ always
 
 ---
 
-## 6. 默认权限预设
+## 6. 权限组与首次默认组合
 
-| Profile | Read | Write | Container | Native | Delete | Git Push | SSH/Admin |
-|---|---|---|---|---|---|---|---|
-| Reader | ✓ | - | - | - | - | - | - |
-| Editor | ✓ | ✓ | - | - | ask | - | - |
-| Developer | ✓ | ✓ | ✓ | ask | ask | ask | - |
-| Operator | ✓ | ✓ | ✓ | ✓/ask | ask | ask | ask |
-| Owner | ✓ | ✓ | ✓ | ✓ | configurable | configurable | configurable |
+Hanis 对用户提供 5 个权限组。用户侧说明采用正向清单，只显示该组实际开放的能力。
 
-推荐首次安装默认 `Developer`，但让用户明确选择。
+### Reader
+
+开放：
+
+- Workspace / 文件 / 文档 / 代码读取
+- 搜索
+- Git status / diff
+- AGENTS / MEMORY 读取
+- 项目分析、Plan、TODO 输出
+
+### Editor
+
+开放：
+
+- 创建 / 修改 / patch / 移动 Workspace 内文件
+- 写入前快照与恢复
+- MEMORY 更新
+
+### Developer
+
+开放：
+
+- 隔离 Shell / 项目脚本
+- build / test / lint
+- 容器运行
+- 容器内依赖安装与受控网络
+- Git commit 等开发动作
+
+### Operator
+
+开放：
+
+- Native Shell
+- 进程管理
+- Docker 管理
+- Git push
+- SSH / remote execute
+- 系统服务操作
+- `secrets.use` 外部任务注入
+
+### Owner
+
+开放：
+
+- Hanis 完整 Capability 集
+- 删除、force push、系统管理、原始 Secret 等高风险能力的显式授权 / elevation
+
+首次默认组合：
+
+```text
+Reader + Editor
+```
+
+用户可以在首次问询中直接选择更高权限组或组合。Hanis 应计算并反馈：
+
+```text
+开放 Workspace 数量
+开放权限组
+开放 Capability 数量
+开放 Capability 清单
+```
+
+正常状态反馈始终采用正向能力清单：展示已开放的 Workspace、权限组、Capability 数量和 Capability 名称。策略判断只在相关操作实际触发时反馈该次结果。
 
 ---
 
 ## 7. Workspace 自己有权限边界
 
-不要再像当前生产实例一样默认开放整个 `D:\` 给所有用户。
+Workspace 范围由用户首次输入显式提供，可以是整个盘符、指定目录、单个项目或多个路径。每个 Workspace 都以用户提供的 root 作为 Scope。
 
 示例：
 
@@ -224,12 +280,14 @@ always
 {
   "id": "my-app",
   "root": "D:\\Projects\\my-app",
-  "profile": "developer",
-  "capabilities": {
-    "filesystem.delete": "ask",
-    "shell.native": "deny",
-    "git.push": "ask"
-  }
+  "groups": ["reader", "editor"],
+  "enabledCapabilities": [
+    "workspace.read",
+    "filesystem.read",
+    "filesystem.write",
+    "filesystem.move",
+    "git.read"
+  ]
 }
 ```
 
