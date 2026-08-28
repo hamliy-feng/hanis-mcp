@@ -56,11 +56,155 @@ PHASE 5  验证读、写、执行、恢复、续接
 
 **当前第一要务是 PHASE 1。**
 
-在 PHASE 1 没有完成以前，不要先做复杂的 Agent 迁移、权限 UI、Journal 重构或多模型适配。
+在 PHASE 1 中，任何外部 Agent 读完本文件后的第一项动作，是一次性向用户收集构建所需输入，再自动完成可自动完成的安装、检测、配置和验证。
 
 ---
 
 # PHASE 1 — 让网页版 ChatGPT 连接本地 Hanis MCP
+
+## 1.0 外部 Agent 读完本文后的首次回复（必须一次性询问）
+
+不要把配置拆成多轮追问。第一次回复应一次性向用户收集以下 4 项：
+
+### A. Workspace 开放范围
+
+询问用户希望网页版 GPT 可以访问哪些本地范围。支持一个或多个：
+
+```text
+整个盘符      例如 D:\
+指定目录      例如 D:\Projects
+单个项目      例如 D:\Projects\my-app
+多个目录/项目 可同时提供
+```
+
+用户提供的范围就是 Hanis 后续注册 Workspace 和计算 Scope 的依据。
+
+### B. Tunnel ID
+
+用户需要提供自己的 OpenAI Secure MCP Tunnel ID：
+
+```text
+Tunnel ID: <TUNNEL_ID>
+```
+
+### C. Runtime API Key
+
+用户需要提供 tunnel-client 使用的 Runtime API Key。
+
+推荐两种输入方式：
+
+```text
+方式 1：用户已注入 CONTROL_PLANE_API_KEY 环境变量
+方式 2：用户临时提供 Runtime API Key，由 Agent 写入安全运行环境 / secret store
+```
+
+Agent 只确认凭据“已收到 / 已注入”，不在回复、日志、README、AGENTS.md、MEMORY.md 中回显明文。
+
+### D. 权限组
+
+权限组按需要组合。首次默认启用：
+
+```text
+Reader + Editor
+```
+
+用户可以选择：
+
+```text
+Reader
+Editor
+Developer
+Operator
+Owner
+```
+
+每个权限组只按“开放了什么”向用户说明：
+
+```text
+Reader
+- 读取 Workspace / 文件 / 文档 / 代码
+- 搜索内容
+- 查看 Git 状态与 diff
+- 读取 AGENTS / MEMORY 并输出分析、Plan、TODO
+
+Editor
+- 创建 / 修改 / patch / 移动 Workspace 内文件
+- 创建写入前快照并恢复
+- 更新项目 MEMORY
+
+Developer
+- 运行隔离 Shell / 项目脚本
+- build / test / lint
+- 容器内安装依赖与使用网络
+- Git commit 等开发动作
+
+Operator
+- 运行 Native Shell
+- 管理进程与 Docker
+- Git push
+- SSH / 远程执行 / 服务操作
+- 使用受保护 Secret 执行外部任务
+
+Owner
+- 启用 Hanis 提供的完整 Capability 集
+- 对删除、force push、系统管理、原始 Secret 等高风险能力进行显式授权 / 临时提权
+```
+
+`Reader + Editor` 是默认组合；用户说“默认”即可采用这两个权限组。
+
+### 首次标准问询模板
+
+外部 Agent 应直接向用户发送类似以下内容：
+
+```text
+我已经读完 HANIS-METHOD.md。请一次性提供以下信息，我收到后会继续自动检测和搭建：
+
+1. Workspace 开放范围：
+   （盘符 / 目录 / 项目路径，可提供多个）
+
+2. Tunnel ID：
+
+3. Runtime API Key：
+   （可直接临时提供，或回复“已注入 CONTROL_PLANE_API_KEY”）
+
+4. 权限组：
+   Reader / Editor / Developer / Operator / Owner
+   默认：Reader + Editor
+```
+
+### 用户回复后，Agent 必须先做一次正向确认
+
+开始修改本机配置前，先反馈实际将启用的内容，例如：
+
+```text
+Hanis 构建配置已确认
+
+Workspace：2 个
+- D:\Projects\project-a
+- E:\research
+
+权限组：Reader + Editor
+开放 Capability：<根据当前 policy 计算数量>
+- <只列实际开放的 capability>
+
+Tunnel ID：已收到
+Runtime API Key：已收到（不回显）
+
+开始进行本地 MCP、网络、Tunnel 与 ChatGPT 连接检测。
+```
+
+用户侧状态报告只列：
+
+```text
+开放了哪些范围
+开放了哪些能力
+开放能力数量
+当前连接到哪一步
+```
+
+内部 Policy Engine 负责完整的风险判断；正常构建反馈始终采用正向清单，只展示已开放的范围、权限组、Capability 数量和 Capability 名称。
+
+---
 
 ## 1.1 目标状态
 
@@ -82,21 +226,21 @@ Hanis MCP Server
 MCP Tools
 ```
 
-默认不要使用：
+当前标准 Transport 为：
 
-- Tailscale Funnel；
-- 公网端口映射；
-- 自建反向代理；
-- `/mcp-stateless`；
-- 为了连接 ChatGPT 而额外暴露本机公网 HTTPS。
+```text
+Secure MCP Tunnel + local tunnel-client + sessionful /mcp
+```
 
-这些只属于 legacy / optional transport。
+Hanis MCP 保持在本地地址，由 tunnel-client 通过出站 HTTPS 与 OpenAI 建立连接。
 
 ---
 
-## 1.2 AI 开始工作前必须先检测
+## 1.2 收到用户输入后的自动检测
 
-AI 不得假定 Hanis 已安装、Tunnel 已运行或 ChatGPT 已连接。
+收到 Workspace、Tunnel ID、Runtime API Key 和权限组以后，Agent 开始自动检测环境。
+
+网络代理不属于首次必填项；先检测当前网络是否可以直接完成连接。
 
 依次确认：
 
@@ -126,14 +270,7 @@ http://127.0.0.1:7677/mcp
 MCP initialize -> success
 ```
 
-如果本地 MCP Server 不存在：
-
-```text
-STOP PHASE 1B
-先安装或启动 Hanis MCP Server
-```
-
-不能用 Tailscale、公网代理或 Tunnel 去掩盖“本地服务根本没启动”的问题。
+如果本地 MCP Server 尚未运行，Agent 进入 Hanis 本地安装 / 启动步骤，并在本地 health、ready 与 MCP initialize 成功后继续 Tunnel 配置。
 
 ---
 
@@ -159,9 +296,7 @@ serverInfo.name = ASCII
 
 # 2. 创建 OpenAI Secure MCP Tunnel
 
-网页版 ChatGPT **不能直接访问 localhost MCP**。
-
-标准做法：使用 OpenAI Secure MCP Tunnel。
+网页版 ChatGPT 与本地 Hanis 的标准连接方式是 OpenAI Secure MCP Tunnel。
 
 工作机制：
 
@@ -179,20 +314,30 @@ OpenAI-hosted tunnel endpoint
 ChatGPT
 ```
 
-没有公网入站端口。
+这条链路使用本机主动发起的出站 HTTPS；Hanis MCP 继续运行在本地地址。
 
-## 2.1 前置条件
+## 2.1 用户输入与 Agent 自动准备
 
-需要：
+用户已在 `1.0` 一次性提供：
 
-1. 一个 OpenAI `tunnel_id`；
-2. 一个只用于运行 tunnel-client 的 runtime API key；
-3. 本机可运行的 `tunnel-client`；
-4. `tunnel-client` 能访问本地 Hanis `/mcp`；
-5. 本机能出站访问 `api.openai.com:443`；
-6. ChatGPT 账号 / workspace 具有相应 developer-mode / MCP app 权限。
+```text
+Tunnel ID
+Runtime API Key
+```
 
-**AI 不得把 API key 写入 Git、README、AGENTS.md、MEMORY.md、policy.json 或日志。**
+Agent 自动负责：
+
+```text
+检查 / 安装 tunnel-client
+检查本地 Hanis /mcp
+检查网络
+初始化 tunnel profile
+运行 doctor
+启动 tunnel
+验证工具发现
+```
+
+Runtime API Key 仅进入运行环境或安全 secret store，不进入 Git、README、AGENTS.md、MEMORY.md、policy.json 或普通日志。
 
 ---
 
@@ -271,31 +416,79 @@ MCP handshake        OK
 
 ---
 
-# 3. 网络代理处理
+# 3. 网络连接与代理处理
 
-`tunnel-client` 默认需要访问：
+`tunnel-client` 需要通过 HTTPS 连接 OpenAI control plane。
 
-```text
-api.openai.com:443
-```
+网络处理固定为三层，不在首次问询中要求用户填写代理：
 
-如果用户所在网络无法直接访问 OpenAI，而机器已有 HTTP/HTTPS/SOCKS 代理：
+## 3.1 第一层：直接连接
 
-1. 先检测真实代理监听端口；
-2. 再把 tunnel-client 的出站流量指向该代理；
-3. 不要假定常见端口一定存在；
-4. 验证代理能真正访问 `api.openai.com:443`。
-
-常见故障示例：
+Agent 首先测试当前网络：
 
 ```text
-错误：直接照抄一个“常见代理端口”
-正确：先检测本机真实监听端口，再配置 tunnel-client
+DNS resolution
+TCP 443
+TLS / HTTPS
+api.openai.com control plane
 ```
 
-因此其他 AI 必须遵守：
+如果直连成功，直接继续 `tunnel-client doctor` 和 Tunnel 启动。
 
-> **检测实际运行状态，不复制某台机器的历史代理端口。**
+## 3.2 第二层：自动使用本机代理
+
+如果直连失败，Agent 自动检测机器上已有的代理能力，包括：
+
+```text
+HTTP_PROXY / HTTPS_PROXY / ALL_PROXY
+Windows 系统代理
+常见本地 HTTP / HTTPS / SOCKS 监听
+正在运行的代理进程及其实际监听端口
+```
+
+检测到候选代理后，应逐个验证：
+
+```text
+代理端口可连接
+通过代理可完成 DNS / TLS / HTTPS
+通过代理可访问 OpenAI control plane
+```
+
+选取通过验证的代理配置 tunnel-client，然后重新运行：
+
+```powershell
+tunnel-client doctor --profile hanis --explain
+```
+
+## 3.3 第三层：按 Hanis 方法逐层排查
+
+如果自动代理仍无法走通，按以下顺序定位：
+
+```text
+① DNS
+   ↓
+② 本机 TCP 443 / TLS
+   ↓
+③ 代理进程是否运行
+   ↓
+④ 代理实际监听地址 / 端口
+   ↓
+⑤ 代理到 api.openai.com 的 HTTPS
+   ↓
+⑥ tunnel-client 环境变量 / profile
+   ↓
+⑦ OpenAI control plane
+   ↓
+⑧ local Hanis /mcp
+   ↓
+⑨ tunnel-client doctor
+```
+
+只有自动检测无法确定有效路径，或者代理本身需要用户账号 / 凭据时，再向用户询问对应网络信息。
+
+原则：
+
+> **先直连；直连不通就自动找可用代理；仍不通再按层排查。代理不是首次安装表单的一部分。**
 
 ---
 
@@ -453,12 +646,12 @@ Workspace Registry
    └── project-c
 ```
 
-默认原则：
+Workspace 规则：
 
-- 用户显式选择 workspace；
-- 不默认开放 `D:\`、`C:\`、`/` 等整个磁盘；
+- 用户在首次问询中显式提供开放范围；
+- 开放范围可以是整个盘符、目录、单个项目或多个路径；
 - 每个 workspace 具有独立 root、access、runner、policy；
-- 路径不可逃逸 workspace root；
+- 路径访问以用户提供的 workspace root 为 Scope；
 - 一台 Hanis 可以管理多个项目，不需要每个项目重新安装一个 MCP Server。
 
 详细设计见：
@@ -570,17 +763,25 @@ system.service
 system.admin
 ```
 
-默认提供 Profile：
+权限组：
 
 ```text
 Reader
 Editor
-Developer  ← 默认推荐
+Developer
 Operator
 Owner
 ```
 
-高风险权限应支持临时 elevation：
+首次默认组合：
+
+```text
+Reader + Editor
+```
+
+权限组的用户侧说明只列该组实际开放的 Capability；Hanis 在确认配置时同时给出开放 Capability 数量。
+
+高风险权限支持临时 elevation：
 
 ```text
 allow_once
@@ -603,23 +804,24 @@ docs/permission-model.md
 任何 AI 读取本文件后，应按这个顺序：
 
 ```text
-1. 确认用户目标和实际项目路径
-2. 检查 Hanis 是否已经安装/运行
-3. 检查 localhost MCP health
-4. 检查 Secure MCP Tunnel
-5. 确认 ChatGPT Web 能看到并调用 Hanis
-6. 确认 Workspace Registry
-7. 读取 AGENTS.md
-8. 读取 MEMORY.md
-9. 读取 policy / 当前权限
-10. 创建或恢复 Task
-11. 执行实际项目工作
-12. 验证
-13. 更新 MEMORY
-14. 完成 / handoff
+1. 一次性询问用户：Workspace 范围 + Tunnel ID + Runtime API Key + 权限组
+2. 正向反馈：将开放的 Workspace / 权限组 / Capability 数量与清单
+3. 检查 Hanis 是否已经安装/运行
+4. 检查 localhost MCP health / initialize / tools
+5. 网络先直连；失败后自动代理；仍失败则逐层排查
+6. 初始化并检查 Secure MCP Tunnel
+7. 确认 ChatGPT Web 能看到并调用 Hanis
+8. 注册 Workspace Registry
+9. 读取已有 AGENTS / MEMORY / Agent 风格
+10. 读取并应用 policy
+11. 创建或恢复 Task
+12. 执行实际项目工作
+13. 验证
+14. 更新 MEMORY
+15. 完成 / handoff
 ```
 
-如果第 3–5 步尚未完成，而用户当前目标是“建立网页版 GPT 与本机连接”，不要跳到第 7–14 步。
+首次用户问询必须合并成一轮；网络代理由 Agent 在后续自动检测流程中处理。
 
 ---
 
@@ -627,10 +829,10 @@ docs/permission-model.md
 
 任何未来版本都尽量保持以下不变量：
 
-1. **本机优先**：MCP Server 默认不公开暴露。
+1. **本机优先**：MCP Server 使用本地地址，由 Secure MCP Tunnel 连接网页版 GPT。
 2. **Tunnel 与 Runtime 解耦**：Secure MCP Tunnel 只是 Transport。
 3. **一台 Runtime，多 Workspace**。
-4. **Workspace 显式授权**，不默认全盘。
+4. **Workspace 范围由用户首次输入显式确定**，支持盘符、目录、项目和多路径。
 5. **Agent Context 与 Permission 分离**。
 6. **权限服务端强制执行**，不能依赖模型自律。
 7. **Memory 文件化**，不能只依赖某一个聊天窗口。
