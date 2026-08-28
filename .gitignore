@@ -1,0 +1,29 @@
+# Local Hanis state
+.agent_memory/
+.hanis/
+.bridge/
+
+# Secrets / runtime state
+.env
+.env.*
+!.env.example
+.secrets/
+logs/
+jobs/
+snapshots/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.lock
+*.log
+
+# Dependencies / builds
+node_modules/
+dist/
+coverage/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
